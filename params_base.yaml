@@ -1,0 +1,63 @@
+# Copyright 2026 Google LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+tag: <INSERT_TAG>
+data_filter: <INSERT_DATA_FILTER>
+generate_forecast:
+  end_date: <INSERT_END_DATE>
+  start_date: <INSERT_START_DATE>
+cloud:
+  bucket_name: <INSERT_BUCKET_NAME>
+  dataset_id: <INSERT_DATASET_ID>
+  project_id: <INSERT_PROJECT_ID>
+  upload_path: <INSERT_UPLOAD_PATH>
+  incoming_file: <INSERT_INCOMING_FILE>
+data:
+  clean_folder: data/clean_data
+  collect_forecasts_folder: data/collect_forecasts
+  evaluate_folder: data/evaluate
+  forecast_folder: data/forecast
+  generate_forecast_folder: data/generate_forecast
+  local_file: data/raw/source.csv
+  plot_folder: plots/plot_time_series
+  split_folder: data/split_data
+  upload_folder: data/upload_to_bq
+default:
+  country_name: AU
+  split_train_and_test: 30
+  date_column: date_id
+  prediction_column: spend
+fit_model:
+  early_stop_mape: 0.1
+  horizon: 30 days
+  initial: 400 days
+  period: 30 days
+  trial_num: 20
+forecast_arima_plus:
+  confidence_level: 0.9
+  prediction_window: 30
+forecast_timesfm:
+  confidence_level: 0.9
+  prediction_window: 30
+prophet_hyper:
+  cp_prior_max: 5
+  cp_prior_min: 0.05
+  cp_range_max: 0.9
+  cp_range_min: 0.1
+  holidays_prior_max: 5
+  holidays_prior_min: 0.05
+  ssn_mode:
+  - multiplicative
+  ssn_prior_max: 5
+  ssn_prior_min: 0.05

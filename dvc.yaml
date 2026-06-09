@@ -1,0 +1,253 @@
+# Copyright 2026 Google LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+vars:
+  - env.yaml
+  - params.yaml
+
+stages:
+  download_data:
+    cmd: uv run ${SRC_DIR}/pipelines/download_data.py
+    deps:
+    - ${SRC_DIR}/pipelines/download_data.py
+    params:
+    - cloud.bucket_name
+    - cloud.incoming_file
+    - data.local_file
+    outs:
+    - ${data.local_file}
+
+  clean_data:
+    cmd: uv run ${SRC_DIR}/pipelines/clean_data.py
+    deps:
+    - ${SRC_DIR}/pipelines/clean_data.py
+    - ${data.local_file} 
+    params:
+    - tag
+    - data_filter
+    - data.local_file
+    - data.clean_folder
+    outs:
+    - ${data.clean_folder}/${tag}.csv
+
+  plot_time_series:
+    cmd: uv run  ${SRC_DIR}/pipelines/plot_time_series.py
+    deps:
+    - ${SRC_DIR}/pipelines/plot_time_series.py
+    - ${data.clean_folder}/${tag}.csv
+    params:
+    - tag
+    - data.clean_folder
+    - data.plot_folder
+    outs:
+    - ${data.plot_folder}/${tag}.html
+    - ${data.plot_folder}/${tag}.png
+
+  split_train_test:
+    cmd: uv run ${SRC_DIR}/pipelines/split_train_test_data.py
+    deps:
+    - ${SRC_DIR}/pipelines/split_train_test_data.py
+    - ${data.clean_folder}/${tag}.csv
+    params:
+    - tag
+    - data.clean_folder
+    - data.split_folder
+    outs:
+    - ${data.split_folder}/${tag}_train.csv
+    - ${data.split_folder}/${tag}_test.csv
+
+
+  forecast_prophet:
+    cmd: uv run ${SRC_DIR}/models/prophet/forecast_prophet.py
+    deps:
+    - ${SRC_DIR}/models/prophet/forecast_prophet.py
+    - ${data.split_folder}/${tag}_train.csv
+    - ${data.split_folder}/${tag}_test.csv
+    params:
+    - tag
+    - default.country_name
+    - data.split_folder
+    - data.forecast_folder
+    - prophet_hyper
+    - fit_model
+    outs:
+    - ${data.forecast_folder}/prophet/${tag}_forecast.csv
+    - ${data.forecast_folder}/prophet/${tag}_model.json
+    plots:
+    - ${data.forecast_folder}/prophet/${tag}_plot.png
+
+  evaluate_prophet_forecasts:
+    cmd: uv run ${SRC_DIR}/models/prophet/evaluate_prophet_forecasts.py
+    deps:
+    - ${SRC_DIR}/models/prophet/evaluate_prophet_forecasts.py
+    - ${data.split_folder}/${tag}_train.csv
+    - ${data.split_folder}/${tag}_test.csv
+    - ${data.forecast_folder}/prophet/${tag}_forecast.csv
+    params:
+    - tag
+    - data.split_folder
+    - data.forecast_folder
+    - data.evaluate_folder
+    metrics:
+    - ${data.evaluate_folder}/prophet/${tag}_metrics.json:
+        cache: false
+    plots:
+    - ${data.evaluate_folder}/prophet/${tag}_plot.png
+
+  generate_forecast_prophet:
+    cmd: uv run ${SRC_DIR}/models/prophet/generate_forecast_prophet.py
+    deps:
+    - ${SRC_DIR}/models/prophet/generate_forecast_prophet.py
+    - ${data.forecast_folder}/prophet/${tag}_model.json
+    - ${data.clean_folder}/${tag}.csv
+    params:
+    - tag
+    - default.country_name  
+    - data.clean_folder
+    - data.forecast_folder
+    - data.generate_forecast_folder
+    - generate_forecast.start_date
+    - generate_forecast.end_date
+    outs:
+    - ${data.generate_forecast_folder}/prophet/${tag}_forecast.csv
+
+  upload_to_bq:
+    cmd: uv run ${SRC_DIR}/pipelines/upload_to_bq.py
+    deps:
+    - ${SRC_DIR}/pipelines/upload_to_bq.py
+    - ${data.clean_folder}/${tag}.csv
+    params:
+    - tag
+    - cloud.project_id
+    - cloud.dataset_id
+    - data.clean_folder
+    outs:
+    - ${data.upload_folder}/${tag}_hash.txt
+
+  forecast_timesfm:
+    cmd: uv run ${SRC_DIR}/models/timesfm/forecast_timesfm.py
+    deps:
+    - ${SRC_DIR}/models/timesfm/forecast_timesfm.py
+    - ${data.clean_folder}/${tag}.csv
+    - ${data.upload_folder}/${tag}_hash.txt
+    params:
+    - tag
+    - default.split_train_and_test
+    - cloud.project_id
+    - cloud.dataset_id
+    - data.clean_folder
+    - forecast_timesfm.prediction_window
+    - forecast_timesfm.confidence_level
+    outs:
+    - ${data.forecast_folder}/timesfm/${tag}_forecast.csv
+
+
+  evaluate_timesfm_forecasts:
+    cmd: uv run ${SRC_DIR}/models/timesfm/evaluate_timesfm_forecasts.py
+    deps:
+    - ${SRC_DIR}/models/timesfm/evaluate_timesfm_forecasts.py
+    - ${data.split_folder}/${tag}_train.csv
+    - ${data.split_folder}/${tag}_test.csv
+    - ${data.forecast_folder}/timesfm/${tag}_forecast.csv
+    params:
+    - tag
+    - data.split_folder
+    - data.forecast_folder
+    - data.evaluate_folder
+    metrics:
+    - ${data.evaluate_folder}/timesfm/${tag}_metrics.json:
+        cache: false
+    plots:
+    - ${data.evaluate_folder}/timesfm/${tag}_plot.png
+
+  generate_forecast_timesfm:
+    cmd: uv run ${SRC_DIR}/models/timesfm/generate_forecast_timesfm.py
+    deps:
+    - ${SRC_DIR}/models/timesfm/generate_forecast_timesfm.py
+    - ${data.evaluate_folder}/timesfm/${tag}_metrics.json
+    params:
+    - tag
+    - default.country_name  
+    - data.clean_folder
+    - data.forecast_folder
+    - data.generate_forecast_folder
+    - generate_forecast.start_date
+    - generate_forecast.end_date
+    - forecast_timesfm.confidence_level
+    outs:
+    - ${data.generate_forecast_folder}/timesfm/${tag}_forecast.csv
+
+  forecast_arima_plus:
+    cmd: uv run ${SRC_DIR}/models/arima_plus/forecast_arima_plus.py
+    deps:
+    - ${SRC_DIR}/models/arima_plus/forecast_arima_plus.py
+    - ${data.clean_folder}/${tag}.csv
+    - ${data.upload_folder}/${tag}_hash.txt
+    params:
+    - tag
+    - default.split_train_and_test
+    - cloud.project_id
+    - cloud.dataset_id
+    - data.clean_folder
+    - forecast_arima_plus.prediction_window
+    - forecast_arima_plus.confidence_level
+    outs:
+    - ${data.forecast_folder}/arima_plus/${tag}_forecast.csv
+
+  evaluate_arima_plus_forecasts:
+    cmd: uv run ${SRC_DIR}/models/arima_plus/evaluate_arima_plus_forecasts.py
+    deps:
+    - ${SRC_DIR}/models/arima_plus/evaluate_arima_plus_forecasts.py
+    - ${data.split_folder}/${tag}_train.csv
+    - ${data.split_folder}/${tag}_test.csv
+    - ${data.forecast_folder}/arima_plus/${tag}_forecast.csv
+    params:
+    - tag
+    - data.split_folder
+    - data.forecast_folder
+    - data.evaluate_folder
+    metrics:
+    - ${data.evaluate_folder}/arima_plus/${tag}_metrics.json:
+        cache: false
+    plots:
+    - ${data.evaluate_folder}/arima_plus/${tag}_plot.png
+
+  generate_forecast_arima_plus:
+    cmd: uv run ${SRC_DIR}/models/arima_plus/generate_forecast_arima_plus.py
+    deps:
+    - ${SRC_DIR}/models/arima_plus/generate_forecast_arima_plus.py
+    - ${data.evaluate_folder}/arima_plus/${tag}_metrics.json
+    params:
+    - tag
+    - default.country_name  
+    - data.clean_folder
+    - data.forecast_folder
+    - data.generate_forecast_folder
+    - generate_forecast.start_date
+    - generate_forecast.end_date
+    - forecast_arima_plus.confidence_level
+    outs:
+    - ${data.generate_forecast_folder}/arima_plus/${tag}_forecast.csv
+
+  join_forecasts:
+    cmd: uv run ${SRC_DIR}/pipelines/join_forecasts.py
+    deps:
+    - ${SRC_DIR}/pipelines/join_forecasts.py
+    - ${data.generate_forecast_folder}/prophet/${tag}_forecast.csv
+    - ${data.generate_forecast_folder}/timesfm/${tag}_forecast.csv
+    - ${data.generate_forecast_folder}/arima_plus/${tag}_forecast.csv
+    params:
+    - tag
+    outs:
+    - ${data.collect_forecasts_folder}/${tag}.csv
